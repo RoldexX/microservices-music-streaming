@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+pydantic[email]
+pydantic-settings
+pika
+requests
+pytest
+httpx

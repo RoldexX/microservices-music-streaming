@@ -1,0 +1,189 @@
+version: "3.9"
+
+services:
+  # ---------------- RABBITMQ ----------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: rmuser
+      RABBITMQ_DEFAULT_PASS: rmpass
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Web UI
+    networks:
+      - music-net
+
+  # ---------------- AUTH SERVICE (8000) ----------------
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    depends_on:
+      - rabbitmq
+      - profile-service
+    environment:
+      # SQLite (оставляем по умолчанию, можно не указывать)
+      DATABASE_URL: "sqlite:///./auth.db"
+      # RabbitMQ — внутри докера ходим по имени контейнера rabbitmq
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+      # URL profile-service для синхронного вызова /internal/profiles
+      PROFILE_SERVICE_BASE_URL: "http://profile-service:8001/api/v1"
+    ports:
+      - "8000:8000"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+    networks:
+      - music-net
+
+  # ---------------- PROFILE SERVICE (8001) ----------------
+  profile-service:
+    build: ./profile-service
+    container_name: profile-service
+    depends_on:
+      - rabbitmq
+    environment:
+      DATABASE_URL: "sqlite:///./profile.db"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+    ports:
+      - "8001:8001"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8001
+    networks:
+      - music-net
+
+  # ---------------- CATALOG SERVICE (8002) ----------------
+  catalog-service:
+    build: ./catalog-service
+    container_name: catalog-service
+    depends_on:
+      - rabbitmq
+    environment:
+      DATABASE_URL: "sqlite:///./catalog.db"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+    ports:
+      - "8002:8002"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8002
+    networks:
+      - music-net
+
+  # ---------------- SEARCH + LIBRARY SERVICE (8003) ----------------
+  search-library-service:
+    build: ./search-library-service
+    container_name: search-library-service
+    depends_on:
+      - rabbitmq
+      - catalog-service
+    environment:
+      DATABASE_URL: "sqlite:///./search_library.db"
+      # ходим в catalog-service по имени сервиса
+      CATALOG_SERVICE_BASE_URL: "http://catalog-service:8002"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+    ports:
+      - "8003:8003"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8003
+    networks:
+      - music-net
+
+  # ---------------- NOTIFICATIONS SERVICE API (8004) ----------------
+  notifications-service-api:
+    build: ./notifications-service
+    container_name: notifications-service-api
+    depends_on:
+      - rabbitmq
+    environment:
+      DATABASE_URL: "sqlite:///./data/notifications.db"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+      RABBITMQ_QUEUE: "notifications-queue"
+    volumes:
+      - notifications-data:/code/data
+    ports:
+      - "8004:8004"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8004
+    networks:
+      - music-net
+
+  # ---------------- NOTIFICATIONS SERVICE WORKER ----------------
+  notifications-service-worker:
+    build: ./notifications-service
+    container_name: notifications-service-worker
+    depends_on:
+      - rabbitmq
+      - notifications-service-api
+    environment:
+      DATABASE_URL: "sqlite:///./data/notifications.db"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+      RABBITMQ_QUEUE: "notifications-queue"
+    volumes:
+      - notifications-data:/code/data
+    command: >
+      python -m app.worker
+    networks:
+      - music-net
+
+  # ---------------- PLAYBACK SERVICE (8005) ----------------
+  playback-service:
+    build: ./playback-service
+    container_name: playback-service
+    depends_on:
+      - rabbitmq
+      - catalog-service
+    environment:
+      DATABASE_URL: "sqlite:///./playback.db"
+      CATALOG_SERVICE_BASE_URL: "http://catalog-service:8002"
+      RABBITMQ_URL: "amqp://rmuser:rmpass@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "music.events"
+    ports:
+      - "8005:8005"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8005
+    networks:
+      - music-net
+
+  profile-service-tests:
+    build:
+      context: ./profile-service
+      dockerfile: Dockerfile
+    command: [ "pytest", "-v" ]
+    depends_on:
+      - profile-service
+    environment:
+      DATABASE_URL: "sqlite:///./data/profiles.db"
+    volumes:
+      - ./profile-service:/code
+      - profile-tests-data:/code/data
+    networks:
+      - music-net
+
+  catalog-service-tests:
+    build:
+      context: ./catalog-service
+      dockerfile: Dockerfile
+    command: [ "pytest", "-v" ]
+    depends_on:
+      - catalog-service
+    environment:
+      DATABASE_URL: "sqlite:///./data/catalog.db"
+    volumes:
+      - ./catalog-service:/code
+      - catalog-tests-data:/code/data
+    networks:
+      - music-net
+
+
+networks:
+  music-net:
+    driver: bridge
+
+volumes:
+  notifications-data:
+  profile-tests-data:
+  catalog-tests-data:

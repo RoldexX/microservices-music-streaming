@@ -36,11 +36,28 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-  # 2. Тестирование
+  # 2. Тестирование (с RabbitMQ)
   tests:
     name: Тестирование
     runs-on: ubuntu-latest
     needs: setup-env
+
+    # здесь поднимаем RabbitMQ как отдельный контейнер
+    services:
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # переменные окружения для приложения / тестов
+    env:
+      # поменяй имя переменной и URL, если в коде используется другой
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
 
     defaults:
       run:
@@ -62,6 +79,7 @@ jobs:
 
       - name: Run tests
         run: |
+          echo "Using AMQP_URL=$AMQP_URL"
           if [ -d tests ]; then pytest -q; else echo "No tests directory, skipping tests"; fi
 
   # 3. Сборка образа
@@ -88,12 +106,12 @@ jobs:
         run: |
           IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
           docker save $IMAGE_NAME -o auth-service-image.tar
-        # сохраняем образ как артефакт, чтобы следующий job мог его забрать
+
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: auth-service-image
-          path: auth-service/auth-service-image.tar
+          path: auth-service-image.tar
 
   # 4. Пуш контейнера
   push-image:

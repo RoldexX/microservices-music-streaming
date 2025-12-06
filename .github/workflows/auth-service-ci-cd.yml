@@ -1,0 +1,58 @@
+name: auth-service CI/CD
+
+on:
+  push:
+    branches: ["master"]      # если у тебя main — измени на "main"
+    paths:
+      - "auth-service/**"
+      - ".github/workflows/auth-service-ci-cd.yml"
+  pull_request:
+    branches: ["master"]      # или main
+    paths:
+      - "auth-service/**"
+
+jobs:
+  build-and-push:
+    name: Build, test and push auth-service
+    runs-on: ubuntu-latest
+
+    # Все команды будут выполняться из папки auth-service
+    defaults:
+      run:
+        working-directory: auth-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then pytest -q; else echo "No tests directory, skipping tests"; fi
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image
+        run: |
+          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+          echo "Building image $IMAGE_NAME"
+          docker build . -f Dockerfile -t $IMAGE_NAME
+
+      - name: Push Docker image to DockerHub
+        run: |
+          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+          echo "Pushing image $IMAGE_NAME"
+          docker push $IMAGE_NAME

@@ -7,3 +7,4 @@ PyJWT
 requests
 pika
 httpx
+pytest

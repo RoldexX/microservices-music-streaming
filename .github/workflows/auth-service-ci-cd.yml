@@ -100,12 +100,12 @@ jobs:
         run: |
           IMAGE_NAME=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
           echo "Building image $IMAGE_NAME"
-          docker build . -f Dockerfile -t $IMAGE_NAME
+          docker build . -f Dockerfile -t "$IMAGE_NAME"
 
       - name: Save image as artifact
         run: |
           IMAGE_NAME=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
-          docker save $IMAGE_NAME -o /tmp/auth-service-image.tar
+          docker save "$IMAGE_NAME" -o /tmp/auth-service-image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -113,11 +113,27 @@ jobs:
           name: auth-service-image
           path: /tmp/auth-service-image.tar
 
-# ---------------------- 4. Загрузка на DockerHub ----------------------
+# ---------------------- 4. Разделитель DockerHub ----------------------
+  splitter-dockerhub:
+    name: DockerHub chain
+    runs-on: ubuntu-latest
+    needs: build-image
+    steps:
+      - run: echo "DockerHub upload chain started"
+
+# ---------------------- 5. Разделитель Yandex Cloud ----------------------
+  splitter-yc:
+    name: Yandex Cloud chain
+    runs-on: ubuntu-latest
+    needs: build-image
+    steps:
+      - run: echo "YC upload chain started"
+
+# ---------------------- 6. Загрузка на DockerHub ----------------------
   push-dockerhub:
     name: Загрузка на DockerHub
     runs-on: ubuntu-latest
-    needs: build-image   # ← запускается после сборки образа
+    needs: splitter-dockerhub
 
     steps:
       - name: Checkout repository
@@ -147,11 +163,11 @@ jobs:
           echo "Pushing $DH_IMAGE"
           docker push "$DH_IMAGE"
 
-# ---------------------- 5. Загрузка на Yandex Cloud ----------------------
+# ---------------------- 7. Загрузка на Yandex Cloud ----------------------
   push-yc:
     name: Загрузка на Yandex Cloud
     runs-on: ubuntu-latest
-    needs: build-image   # ← тоже только после сборки, ПАРАЛЛЕЛЬНО с DockerHub
+    needs: splitter-yc
 
     steps:
       - name: Checkout repository

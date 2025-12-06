@@ -2,12 +2,12 @@ name: auth-service CI/CD
 
 on:
   push:
-    branches: ["master"]      # если у тебя main — измени на "main"
+    branches: ["main"]
     paths:
       - "auth-service/**"
       - ".github/workflows/auth-service-ci-cd.yml"
   pull_request:
-    branches: ["master"]      # или main
+    branches: ["main"]
     paths:
       - "auth-service/**"
 
@@ -16,7 +16,6 @@ jobs:
     name: Build, test and push auth-service
     runs-on: ubuntu-latest
 
-    # Все команды будут выполняться из папки auth-service
     defaults:
       run:
         working-directory: auth-service

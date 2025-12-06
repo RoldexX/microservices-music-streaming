@@ -12,8 +12,8 @@ on:
       - "auth-service/**"
   workflow_dispatch:
 
-# ---------------------- 1. Создание окружения ----------------------
 jobs:
+  # ---------------------- 1. Создание окружения ----------------------
   setup-env:
     name: Создание окружения
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-# ---------------------- 2. Тестирование ----------------------
+  # ---------------------- 2. Тестирование ----------------------
   tests:
     name: Тестирование
     runs-on: ubuntu-latest
@@ -82,7 +82,7 @@ jobs:
           echo "Using AMQP_URL=$AMQP_URL"
           if [ -d tests ]; then pytest -q; else echo "No tests directory, skipping tests"; fi
 
-# ---------------------- 3. Сборка образа ----------------------
+  # ---------------------- 3. Сборка образа ----------------------
   build-image:
     name: Сборка образа
     runs-on: ubuntu-latest
@@ -113,27 +113,11 @@ jobs:
           name: auth-service-image
           path: /tmp/auth-service-image.tar
 
-# ---------------------- 4. Разделитель DockerHub ----------------------
-  splitter-dockerhub:
-    name: DockerHub chain
-    runs-on: ubuntu-latest
-    needs: build-image
-    steps:
-      - run: echo "DockerHub upload chain started"
-
-# ---------------------- 5. Разделитель Yandex Cloud ----------------------
-  splitter-yc:
-    name: Yandex Cloud chain
-    runs-on: ubuntu-latest
-    needs: build-image
-    steps:
-      - run: echo "YC upload chain started"
-
-# ---------------------- 6. Загрузка на DockerHub ----------------------
+  # ---------------------- 4. Загрузка на DockerHub ----------------------
   push-dockerhub:
     name: Загрузка на DockerHub
     runs-on: ubuntu-latest
-    needs: splitter-dockerhub
+    needs: build-image   # идёт после сборки образа (параллельно с push-yc)
 
     steps:
       - name: Checkout repository
@@ -163,11 +147,11 @@ jobs:
           echo "Pushing $DH_IMAGE"
           docker push "$DH_IMAGE"
 
-# ---------------------- 7. Загрузка на Yandex Cloud ----------------------
+  # ---------------------- 5. Загрузка на Yandex Cloud ----------------------
   push-yc:
     name: Загрузка на Yandex Cloud
     runs-on: ubuntu-latest
-    needs: splitter-yc
+    needs: build-image   # тоже после сборки, параллельно push-dockerhub
 
     steps:
       - name: Checkout repository

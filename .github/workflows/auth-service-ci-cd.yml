@@ -57,7 +57,6 @@ jobs:
           --health-retries 5
 
     env:
-      # тут делаем такой же URL, как в твоём сервисе
       AMQP_URL: amqp://rmuser:rmpass@rabbitmq:5672/
 
     defaults:
@@ -82,7 +81,6 @@ jobs:
         run: |
           echo "Using AMQP_URL=$AMQP_URL"
           if [ -d tests ]; then pytest -q; else echo "No tests directory, skipping tests"; fi
-  
 
   # 3. Сборка образа
   build-image:
@@ -107,13 +105,14 @@ jobs:
       - name: Save image as artifact
         run: |
           IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
-          docker save $IMAGE_NAME -o auth-service-image.tar
+          # сохраняем образ во /tmp, чтобы не путаться с рабочей директорией
+          docker save $IMAGE_NAME -o /tmp/auth-service-image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: auth-service-image
-          path: auth-service-image.tar
+          name: auth-service-image           # ВАЖНО: это имя потом используем в push-image
+          path: /tmp/auth-service-image.tar  # путь до файла, который только что сохранили
 
   # 4. Пуш контейнера
   push-image:
@@ -128,12 +127,12 @@ jobs:
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: auth-service-image
-          path: .
+          name: auth-service-image       # ДОЛЖНО совпадать с name в upload-artifact
+          path: /tmp
 
       - name: Load Docker image
         run: |
-          docker load -i auth-service-image.tar
+          docker load -i /tmp/auth-service-image.tar
 
       - name: Log in to DockerHub
         uses: docker/login-action@v3

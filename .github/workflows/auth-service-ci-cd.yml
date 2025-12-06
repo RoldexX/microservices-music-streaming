@@ -12,7 +12,7 @@ on:
       - "auth-service/**"
   workflow_dispatch:
 
-# 1. Создание окружения
+# ---------------------- 1. Создание окружения ----------------------
 jobs:
   setup-env:
     name: Создание окружения
@@ -36,7 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-  # 2. Тестирование (с RabbitMQ)
+# ---------------------- 2. Тестирование ----------------------
   tests:
     name: Тестирование
     runs-on: ubuntu-latest
@@ -82,7 +82,7 @@ jobs:
           echo "Using AMQP_URL=$AMQP_URL"
           if [ -d tests ]; then pytest -q; else echo "No tests directory, skipping tests"; fi
 
-  # 3. Сборка образа
+# ---------------------- 3. Сборка образа ----------------------
   build-image:
     name: Сборка образа
     runs-on: ubuntu-latest
@@ -98,27 +98,26 @@ jobs:
 
       - name: Build Docker image
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+          IMAGE_NAME=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
           echo "Building image $IMAGE_NAME"
           docker build . -f Dockerfile -t $IMAGE_NAME
 
       - name: Save image as artifact
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
-          # сохраняем образ во /tmp, чтобы не путаться с рабочей директорией
+          IMAGE_NAME=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
           docker save $IMAGE_NAME -o /tmp/auth-service-image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: auth-service-image           # ВАЖНО: это имя потом используем в push-image
-          path: /tmp/auth-service-image.tar  # путь до файла, который только что сохранили
+          name: auth-service-image
+          path: /tmp/auth-service-image.tar
 
-  # 4. Пуш контейнера
-  push-image:
-    name: Пуш контейнера
+# ---------------------- 4. Загрузка на DockerHub ----------------------
+  push-dockerhub:
+    name: Загрузка на DockerHub
     runs-on: ubuntu-latest
-    needs: build-image
+    needs: build-image   # ← запускается после сборки образа
 
     steps:
       - name: Checkout repository
@@ -127,12 +126,11 @@ jobs:
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: auth-service-image       # ДОЛЖНО совпадать с name в upload-artifact
+          name: auth-service-image
           path: /tmp
 
       - name: Load Docker image
-        run: |
-          docker load -i /tmp/auth-service-image.tar
+        run: docker load -i /tmp/auth-service-image.tar
 
       - name: Log in to DockerHub
         uses: docker/login-action@v3
@@ -140,8 +138,43 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Push Docker image
+      - name: Push Docker image to DockerHub
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
-          echo "Pushing image $IMAGE_NAME"
-          docker push $IMAGE_NAME
+          YC_IMAGE=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
+          DH_IMAGE=${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+          echo "Tagging $YC_IMAGE -> $DH_IMAGE"
+          docker tag "$YC_IMAGE" "$DH_IMAGE"
+          echo "Pushing $DH_IMAGE"
+          docker push "$DH_IMAGE"
+
+# ---------------------- 5. Загрузка на Yandex Cloud ----------------------
+  push-yc:
+    name: Загрузка на Yandex Cloud
+    runs-on: ubuntu-latest
+    needs: build-image   # ← тоже только после сборки, ПАРАЛЛЕЛЬНО с DockerHub
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: auth-service-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: docker load -i /tmp/auth-service-image.tar
+
+      - name: Log in to Yandex Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: cr.yandex
+          username: json_key
+          password: ${{ secrets.YC_KEYS }}
+
+      - name: Push Docker image to Yandex Cloud
+        run: |
+          YC_IMAGE=cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
+          echo "Pushing $YC_IMAGE"
+          docker push "$YC_IMAGE"
